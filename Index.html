@@ -1,1 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+<title>Plotter — floating prototype</title>
+<style>
+:root{
+  --bg:#15171A;--bg-elev:#1C1F23;--bg-elev2:#232629;
+  --paper:#E8E4DC;--paper-dim:#A8A39A;
+  --l5:#D4452E;--l5-dim:#4A2620;
+  --l4:#D4783C;--l4-dim:#5C4332;
+  --l3:#8B8378;--l3-dim:#3A3835;
+  --l2:#7A9B7E;--l2-dim:#37423A;
+  --l1:#5C7A60;--l1-dim:#2E372F;
+  --line:#2C2F33;--danger:#C2543D;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--paper);font-family:-apple-system,'Inter',system-ui,sans-serif;overflow-x:hidden;}
+.mono{font-family:'SF Mono',Menlo,monospace;}
+
+header.top{
+  position:sticky; top:0; z-index:30;
+  background:linear-gradient(to bottom, var(--bg) 60%, transparent);
+  padding:calc(env(safe-area-inset-top) + 14px) 18px 24px 18px;
+  display:flex; justify-content:space-between; align-items:baseline;
+  pointer-events:none;
+}
+header.top h1{font-size:15px;letter-spacing:.12em;text-transform:uppercase;color:var(--paper-dim);margin:0;font-weight:600;}
+header.top .date{font-size:12px;color:#8B8378;}
+
+#canvas{
+  position:relative;
+  width:100%;
+}
+
+.sphere{
+  position:absolute;
+  border-radius:50%;
+  display:flex; align-items:center; justify-content:center;
+  cursor:pointer;
+  will-change:transform;
+  transition:width .35s cubic-bezier(.2,.8,.2,1), height .35s cubic-bezier(.2,.8,.2,1);
+}
+.sphere .ring-svg{position:absolute; inset:0; pointer-events:none;}
+.sphere .ring-content{
+  position:relative; z-index:2;
+  display:flex; flex-direction:column; align-items:center;
+  pointer-events:none;
+}
+.sphere .pct{font-family:'SF Mono',Menlo,monospace; font-weight:700; color:var(--paper);}
+.sphere .name{
+  font-size:11px; font-weight:600; color:var(--paper);
+  text-align:center; margin-top:2px; line-height:1.2;
+  max-width:90%; overflow:hidden; text-overflow:ellipsis;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+}
+
+.sphere.expanded{
+  z-index:40;
+  cursor:default;
+  background:var(--bg-elev);
+  border-radius:24px;
+  box-shadow:0 20px 60px rgba(0,0,0,0.5);
+}
+.sphere.expanded .ring-svg{display:none;}
+.sphere.expanded .ring-content{display:none;}
+
+.expand-inner{
+  display:none;
+  width:100%; height:100%;
+  padding:18px;
+  overflow-y:auto;
+  pointer-events:auto;
+}
+.sphere.expanded .expand-inner{display:block;}
+
+.expand-head{
+  display:flex; justify-content:space-between; align-items:flex-start;
+  margin-bottom:10px;
+}
+.expand-title{font-size:17px; font-weight:700; color:var(--paper);}
+.expand-meta{font-size:11px; color:#8B8378; margin-top:3px;}
+.close-btn{
+  background:var(--bg-elev2); border:none; color:var(--paper-dim);
+  width:28px; height:28px; border-radius:50%; font-size:16px;
+  display:flex; align-items:center; justify-content:center;
+  flex-shrink:0;
+}
+
+.task{background:var(--bg-elev2);border-radius:10px;padding:10px 11px;margin-bottom:8px;}
+.task-name{font-size:13.5px;color:var(--paper);line-height:1.3;}
+.task-name.done{color:#8B8378;text-decoration:line-through;}
+.task-note{font-size:11.5px;color:var(--paper-dim);margin-top:4px;line-height:1.4;}
+.slider-row{display:flex;align-items:center;gap:8px;margin-top:7px;}
+input[type=range]{-webkit-appearance:none;flex:1;height:4px;border-radius:2px;background:var(--line);outline:none;}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:var(--l4);border:2px solid var(--bg);}
+.pct-readout{font-size:11px;width:34px;text-align:right;color:var(--paper-dim);}
+
+.hint{
+  position:fixed; bottom:18px; left:0; right:0; text-align:center;
+  font-size:11px; color:#8B8378; z-index:25; pointer-events:none;
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <h1>Plotter</h1>
+  <div class="date mono" id="today-date"></div>
+</header>
+
+<div id="canvas"></div>
+<div class="hint">scroll to explore · tap a sphere to expand</div>
+
+<script>
+const projects = [
+  { id:'p1', name:"Home Network Upgrade", urgency:2, tasks:[
+    { name:"Run new Cat6 cable", pct:100, note:"Done — confirmed live at new location." },
+    { name:"Buy switch + access point", pct:50, note:"5-port switch + AP, set AP mode not router mode." },
+    { name:"Bridge old router to AP mode", pct:0, note:"Flattens network to one subnet." }
+  ]},
+  { id:'p2', name:"Ichimoku Scalp Ruleset", urgency:5, tasks:[
+    { name:"Finalize 3m entry rules", pct:60, note:"Standalone layer, separate from 4H bias." },
+    { name:"Backtest momentum-failure pattern", pct:33, note:"NQ, Gold, FTSE." }
+  ]},
+  { id:'p3', name:"Cotignac Detecting Trip", urgency:1, tasks:[
+    { name:"Report fleur-de-lis pendant to DRAC PACA", pct:20, note:"" }
+  ]},
+  { id:'p4', name:"Trading Bot v2", urgency:4, tasks:[
+    { name:"Connect IG Markets API", pct:40, note:"Demo account first." },
+    { name:"Build risk module", pct:10, note:"" }
+  ]},
+  { id:'p5', name:"Reel App Polish", urgency:3, tasks:[
+    { name:"Fix RLS policy bug", pct:80, note:"" },
+    { name:"QR code feature", pct:25, note:"" }
+  ]},
+  { id:'p6', name:"Pension Transfer Review", urgency:1, tasks:[
+    { name:"Compare provider fees", pct:15, note:"" }
+  ]},
+  { id:'p7', name:"Tesla Rooftop Tent Install", urgency:2, tasks:[
+    { name:"Order TentBox GO", pct:0, note:"" },
+    { name:"Fit crossbars", pct:0, note:"" }
+  ]},
+];
+
+const tierStyle = {
+  5:{size:96, color:'var(--l5)', dim:'var(--l5-dim)'},
+  4:{size:84, color:'var(--l4)', dim:'var(--l4-dim)'},
+  3:{size:72, color:'var(--l3)', dim:'var(--l3-dim)'},
+  2:{size:60, color:'var(--l2)', dim:'var(--l2-dim)'},
+  1:{size:48, color:'var(--l1)', dim:'var(--l1-dim)'},
+};
+
+function projectProgress(p){
+  if(p.tasks.length===0) return 0;
+  return Math.round(p.tasks.reduce((a,t)=>a+t.pct,0)/p.tasks.length);
+}
+
+function getSpherePositions(projectList, canvasWidth, canvasHeight){
+  const placed = [];
+  const margin = 16;
+  const bandHeight = canvasHeight / projectList.length;
+
+  projectList.forEach((p, idx) => {
+    const size = tierStyle[p.urgency].size;
+    const bandTop = idx * bandHeight;
+    const bandBottom = bandTop + bandHeight;
+    let attempt = 0, x, y, ok;
+    const maxX = Math.max(margin, canvasWidth - size - margin);
+    do {
+      x = margin + Math.random() * (maxX - margin);
+      const bandPad = bandHeight * 0.15;
+      const yMin = Math.max(margin, bandTop - bandPad);
+      const yMax = Math.min(canvasHeight - size - margin, bandBottom - size + bandPad);
+      y = yMin + Math.random() * Math.max(10, yMax - yMin);
+      ok = true;
+      for(const o of placed){
+        const dx = (x + size/2) - (o.x + o.size/2);
+        const dy = (y + size/2) - (o.y + o.size/2);
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if(dist < (size + o.size)/2 + 14){ ok = false; break; }
+      }
+      attempt++;
+    } while(!ok && attempt < 80);
+    placed.push({ id:p.id, x, y, size });
+  });
+  return placed;
+}
+
+const canvasEl = document.getElementById('canvas');
+const canvasWidth = window.innerWidth || 390;
+const canvasHeight = Math.max((window.innerHeight || 800) * 2.2, projects.length * 170);
+canvasEl.style.height = canvasHeight + 'px';
+
+const positions = getSpherePositions(projects, canvasWidth, canvasHeight);
+const posMap = {};
+positions.forEach(p => posMap[p.id] = p);
+
+let expandedId = null;
+
+function escapeHtml(s){ const d=document.createElement('div'); d.innerText=s||''; return d.innerHTML; }
+
+function renderTaskHtml(t, idx){
+  return `
+    <div class="task">
+      <div class="task-name ${t.pct===100?'done':''}">${escapeHtml(t.name)}</div>
+      ${t.note ? `<div class="task-note">${escapeHtml(t.note)}</div>` : ''}
+      <div class="slider-row">
+        <input type="range" min="0" max="100" value="${t.pct}" disabled>
+        <div class="pct-readout mono">${t.pct}%</div>
+      </div>
+    </div>`;
+}
+
+function buildSphere(p){
+  const pos = posMap[p.id];
+  const tier = tierStyle[p.urgency];
+  const pct = projectProgress(p);
+  const stroke = 7;
+  const r = (pos.size - stroke)/2;
+  const c = 2*Math.PI*r;
+  const offset = c - (pct/100)*c;
+
+  const el = document.createElement('div');
+  el.className = 'sphere';
+  el.id = 'sphere-' + p.id;
+  el.style.left = pos.x + 'px';
+  el.style.top = pos.y + 'px';
+  el.style.width = pos.size + 'px';
+  el.style.height = pos.size + 'px';
+  el.dataset.baseX = pos.x;
+  el.dataset.baseY = pos.y;
+  el.dataset.size = pos.size;
+  el.dataset.phase = (Math.random()*Math.PI*2).toFixed(3);
+  el.dataset.amp = (3 + Math.random()*4).toFixed(2);
+
+  el.innerHTML = `
+    <svg class="ring-svg" width="${pos.size}" height="${pos.size}" viewBox="0 0 ${pos.size} ${pos.size}">
+      <circle cx="${pos.size/2}" cy="${pos.size/2}" r="${r}" fill="none" stroke="${tier.dim}" stroke-width="${stroke}"/>
+      <circle cx="${pos.size/2}" cy="${pos.size/2}" r="${r}" fill="none" stroke="${tier.color}" stroke-width="${stroke}"
+        stroke-dasharray="${c}" stroke-dashoffset="${offset}" stroke-linecap="round"
+        transform="rotate(-90 ${pos.size/2} ${pos.size/2})"/>
+    </svg>
+    <div class="ring-content">
+      <div class="pct" style="font-size:${pos.size*0.22}px">${pct}%</div>
+      <div class="name" style="font-size:${Math.max(9, pos.size*0.1)}px">${escapeHtml(p.name)}</div>
+    </div>
+    <div class="expand-inner">
+      <div class="expand-head">
+        <div>
+          <div class="expand-title">${escapeHtml(p.name)}</div>
+          <div class="expand-meta mono">${pct}% complete · ${p.tasks.length} tasks · level ${p.urgency}</div>
+        </div>
+        <button class="close-btn" onclick="collapseSphere('${p.id}', event)">✕</button>
+      </div>
+      ${p.tasks.map((t,i)=>renderTaskHtml(t,i)).join('')}
+    </div>
+  `;
+
+  el.addEventListener('click', (e) => {
+    if(el.classList.contains('expanded')) return;
+    expandSphere(p.id);
+  });
+
+  return el;
+}
+
+projects.forEach(p => canvasEl.appendChild(buildSphere(p)));
+
+function expandSphere(id){
+  if(expandedId) collapseSphere(expandedId);
+  const el = document.getElementById('sphere-' + id);
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const targetW = Math.min(vw - 32, 520);
+  const targetH = Math.min(vh * 0.7, 560);
+  const scrollY = window.scrollY;
+  el.style.left = ((vw - targetW)/2) + 'px';
+  el.style.top = (scrollY + vh*0.15) + 'px';
+  el.style.width = targetW + 'px';
+  el.style.height = targetH + 'px';
+  el.classList.add('expanded');
+  expandedId = id;
+}
+
+function collapseSphere(id, evt){
+  if(evt) evt.stopPropagation();
+  const el = document.getElementById('sphere-' + id);
+  el.style.left = el.dataset.baseX + 'px';
+  el.style.top = el.dataset.baseY + 'px';
+  el.style.width = el.dataset.size + 'px';
+  el.style.height = el.dataset.size + 'px';
+  el.classList.remove('expanded');
+  if(expandedId === id) expandedId = null;
+}
+
+let lastScrollY = window.scrollY;
+let scrollVelocity = 0;
+
+window.addEventListener('scroll', () => {
+  const sy = window.scrollY;
+  scrollVelocity = sy - lastScrollY;
+  lastScrollY = sy;
+}, { passive: true });
+
+function animate(t){
+  const time = t / 1000;
+  document.querySelectorAll('.sphere:not(.expanded)').forEach(el => {
+    const phase = parseFloat(el.dataset.phase);
+    const amp = parseFloat(el.dataset.amp);
+    const driftX = Math.sin(time * 0.6 + phase) * amp;
+    const driftY = Math.cos(time * 0.5 + phase) * amp * 0.8;
+    const scrollKick = Math.max(-10, Math.min(10, -scrollVelocity * 0.4));
+    el.style.transform = `translate(${driftX}px, ${driftY + scrollKick}px)`;
+  });
+  scrollVelocity *= 0.85;
+  requestAnimationFrame(animate);
+}
+requestAnimationFrame(animate);
+
+function setDate(){
+  const el = document.getElementById('today-date');
+  const d = new Date();
+  el.textContent = d.toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'short'}).toUpperCase();
+}
+setDate();
+</script>
+</body>
+</html>
 
